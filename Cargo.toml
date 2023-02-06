@@ -1,5 +1,5 @@
 [package]
-name = "rust-rpi-pico-starter"
+name = "rust-macro-keyboard"
 version = "0.1.0"
 edition = "2021"
 
@@ -14,6 +14,10 @@ defmt = "0.3"
 defmt-rtt = "0.4"
 
 rp-pico = "0.6"
+usbd-hid = "0.6.1"
+usb-device = "0.2.9"
+rp2040-hal = { version = "0.7.0", features = ["critical-section-impl"] }
+critical-section = "1.1.1"
 
 # https://github.com/rp-rs/rp2040-project-template/blob/main/Cargo.toml
 
