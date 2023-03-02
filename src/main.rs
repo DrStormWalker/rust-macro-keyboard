@@ -6,7 +6,6 @@ mod keyboard;
 
 use core::panic::PanicInfo;
 
-use keyboard::print_reports;
 use rp_pico::{
     entry,
     hal::{clocks, pac::interrupt, usb, Clock, Watchdog},
@@ -27,7 +26,7 @@ fn _panic_handler(_info: &PanicInfo) -> ! {
     loop {}
 }
 
-const USB_DELAY: u8 = 5;
+pub const USB_DELAY: u8 = 5;
 
 static mut USB_DEVICE: Option<UsbDevice<usb::UsbBus>> = None;
 static mut USB_BUS: Option<UsbBusAllocator<usb::UsbBus>> = None;
@@ -107,18 +106,57 @@ fn main() -> ! {
     let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
 
     loop {
-        for report in print_reports("echo 'Hello, world!'\n") {
-            push_report(report);
-            delay.delay_ms(USB_DELAY as u32);
-        }
+        let _ = kbd_println!(delay, "echo 'Hello, world!'");
 
         delay.delay_ms(1000);
     }
 }
 
-fn push_report(report: KeyboardReport) -> Result<usize, UsbError> {
+pub fn push_report(report: KeyboardReport) -> Result<usize, UsbError> {
     critical_section::with(|_| unsafe { USB_HID.as_mut().map(|hid| hid.push_input(&report)) })
         .unwrap()
+}
+
+#[macro_export]
+macro_rules! kbd_print {
+    ($delay:expr, $str:literal) => {{
+        let delay: &mut ::cortex_m::delay::Delay = &mut ($delay);
+        let mut result = Ok(());
+
+        for report in $crate::keyboard::print_reports($str) {
+            if let Err(e) = $crate::push_report(report) {
+                result = Err(e);
+                break;
+            }
+            delay.delay_ms(USB_DELAY as u32);
+        }
+
+        result
+    }};
+}
+
+#[macro_export]
+macro_rules! kbd_println {
+    ($delay:expr) => {{
+        $crate::kbd_print!($delay, "\n");
+    }};
+    ($delay:expr, $str:literal) => {{
+        let delay: &mut ::cortex_m::delay::Delay = &mut ($delay);
+        let mut result = Ok(());
+
+        let reports =
+            $crate::keyboard::print_reports($str).chain($crate::keyboard::print_reports("\n"));
+
+        for report in reports {
+            if let Err(e) = $crate::push_report(report) {
+                result = Err(e);
+                break;
+            }
+            delay.delay_ms(USB_DELAY as u32);
+        }
+
+        result
+    }};
 }
 
 /// This function is called whenever the USB hardware generates an inturrupt request.

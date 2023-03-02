@@ -1,4 +1,4 @@
-use core::iter;
+use core::{fmt::Arguments, iter};
 
 use usbd_hid::descriptor::KeyboardReport;
 
