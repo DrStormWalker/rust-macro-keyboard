@@ -342,7 +342,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rust-rpi-pico-starter"
+name = "rust-macro-keyboard"
 version = "0.1.0"
 dependencies = [
  "cortex-m",

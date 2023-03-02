@@ -1,16 +1,21 @@
 #![no_std]
 #![no_main]
+#![feature(iter_intersperse)]
+
+mod keyboard;
 
 use core::panic::PanicInfo;
 
+use keyboard::print_reports;
 use rp_pico::{
     entry,
-    hal::{clocks, pac::interrupt, usb, Clock, Sio, Watchdog},
-    pac, Pins,
+    hal::{clocks, pac::interrupt, usb, Clock, Watchdog},
+    pac,
 };
 use usb_device::{
     class_prelude::UsbBusAllocator,
     prelude::{UsbDevice, UsbDeviceBuilder, UsbVidPid},
+    UsbError,
 };
 use usbd_hid::{
     descriptor::{KeyboardReport, SerializedDescriptor},
@@ -21,6 +26,8 @@ use usbd_hid::{
 fn _panic_handler(_info: &PanicInfo) -> ! {
     loop {}
 }
+
+const USB_DELAY: u8 = 5;
 
 static mut USB_DEVICE: Option<UsbDevice<usb::UsbBus>> = None;
 static mut USB_BUS: Option<UsbBusAllocator<usb::UsbBus>> = None;
@@ -45,6 +52,8 @@ fn main() -> ! {
 
     #[cfg(feature = "rp2040-e5")]
     {
+        use rp_pico::{hal::Sio, Pins};
+
         let sio = Sio::new(pac.SIO);
         let _pins = Pins::new(
             pac.IO_BANK0,
@@ -71,7 +80,7 @@ fn main() -> ! {
     let bus_ref = unsafe { USB_BUS.as_ref().unwrap() };
 
     // Set up the device class driver
-    let usb_hid = HIDClass::new(bus_ref, KeyboardReport::desc(), 10);
+    let usb_hid = HIDClass::new(bus_ref, KeyboardReport::desc(), USB_DELAY);
 
     unsafe {
         // This is safe as interrupts haven't been started yet.
@@ -98,70 +107,18 @@ fn main() -> ! {
     let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
 
     loop {
-        // Keycodes can be found [here](https://usb.org/sites/default/files/hut1_4.pdf)
-        // Up to 6 keycodes can be placed in one report, and will be enter one after the other
-        // Any duplicate keycodes will be ignored, so to send two `0`s in a row
-        // two reports must be sent with a reset report between them.
-        let report = KeyboardReport {
-            modifier: 0x0,
-            reserved: 0,
-            leds: 0x0,
-            //            H     E     L
-            keycodes: [0x0B, 0x08, 0x0F, 0x00, 0x00, 0x00],
-        };
-
-        let _ = critical_section::with(|_| unsafe {
-            USB_HID.as_mut().map(|hid| hid.push_input(&report))
-        })
-        .unwrap();
-
-        delay.delay_ms(10);
-
-        // This is a reset report, it clears all held keys, telling the host they are no longer
-        // pressed
-        let report = KeyboardReport {
-            modifier: 0x0,
-            reserved: 0,
-            leds: 0x0,
-            keycodes: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-        };
-
-        let _ = critical_section::with(|_| unsafe {
-            USB_HID.as_mut().map(|hid| hid.push_input(&report))
-        })
-        .unwrap();
-
-        delay.delay_ms(10);
-
-        let report = KeyboardReport {
-            modifier: 0x0,
-            reserved: 0,
-            leds: 0x0,
-            //            L     0     .  space
-            keycodes: [0x0F, 0x12, 0x37, 0x2C, 0x00, 0x00],
-        };
-
-        let _ = critical_section::with(|_| unsafe {
-            USB_HID.as_mut().map(|hid| hid.push_input(&report))
-        })
-        .unwrap();
-
-        delay.delay_ms(10);
-
-        let report = KeyboardReport {
-            modifier: 0x0,
-            reserved: 0,
-            leds: 0x0,
-            keycodes: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-        };
-
-        let _ = critical_section::with(|_| unsafe {
-            USB_HID.as_mut().map(|hid| hid.push_input(&report))
-        })
-        .unwrap();
+        for report in print_reports("echo 'Hello, world!'\n") {
+            push_report(report);
+            delay.delay_ms(USB_DELAY as u32);
+        }
 
         delay.delay_ms(1000);
     }
+}
+
+fn push_report(report: KeyboardReport) -> Result<usize, UsbError> {
+    critical_section::with(|_| unsafe { USB_HID.as_mut().map(|hid| hid.push_input(&report)) })
+        .unwrap()
 }
 
 /// This function is called whenever the USB hardware generates an inturrupt request.
